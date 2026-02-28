@@ -4,6 +4,9 @@ import { ToastComponent } from './shared/components/toast/toast.component';
 import { BreadcrumbsComponent } from './shared/components/breadcrumbs/breadcrumbs.component';
 
 import { GlobalSecurityComponent } from './shared/components/global-security/global-security.component';
+import { AuthService } from './core/services/auth.service';
+import { NotificationService } from './core/services/notification.service';
+import { StorageService } from './core/services/storage.service';
 
 @Component({
   selector: 'app-root',
@@ -26,10 +29,17 @@ export class AppComponent implements OnInit, OnDestroy {
   protected readonly countryDetected = signal(false);
   protected readonly isTyping = signal(false);
   protected readonly introActive = computed(() => this.showOverlay());
+  protected readonly resetBusy = signal(false);
 
   private readonly sessionKey = 'fastemis_welcome_overlay_seen_v1';
   private readonly timeouts: Array<ReturnType<typeof setTimeout>> = [];
   private readonly intervals: Array<ReturnType<typeof setInterval>> = [];
+
+  constructor(
+    private authService: AuthService,
+    private notificationService: NotificationService,
+    private storageService: StorageService
+  ) { }
 
   ngOnInit(): void {
     if (!this.shouldShowOverlay()) {
@@ -159,5 +169,79 @@ export class AppComponent implements OnInit, OnDestroy {
     this.intervals.forEach(timer => clearInterval(timer));
     this.timeouts.length = 0;
     this.intervals.length = 0;
+  }
+
+  protected async clearBrowserSessionData(): Promise<void> {
+    if (this.resetBusy()) {
+      return;
+    }
+
+    const shouldProceed = typeof window === 'undefined'
+      ? false
+      : window.confirm('Clear session, cookies and cache now?');
+    if (!shouldProceed) {
+      return;
+    }
+
+    this.resetBusy.set(true);
+
+    try {
+      this.authService.logout();
+      this.storageService.clear();
+
+      if (typeof window !== 'undefined') {
+        window.localStorage.clear();
+        window.sessionStorage.clear();
+      }
+
+      if (typeof document !== 'undefined') {
+        const cookies = document.cookie ? document.cookie.split(';') : [];
+        for (const entry of cookies) {
+          const name = entry.split('=')[0]?.trim();
+          if (!name) continue;
+          document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/;`;
+        }
+      }
+
+      if (typeof window !== 'undefined' && 'caches' in window) {
+        const cacheKeys = await window.caches.keys();
+        await Promise.all(cacheKeys.map((key) => window.caches.delete(key)));
+      }
+
+      if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(registrations.map((registration) => registration.unregister()));
+      }
+
+      if (typeof window !== 'undefined' && 'indexedDB' in window) {
+        const indexedDbApi = window.indexedDB as IDBFactory & {
+          databases?: () => Promise<Array<{ name?: string }>>;
+        };
+        if (typeof indexedDbApi.databases === 'function') {
+          const dbs = await indexedDbApi.databases();
+          for (const db of dbs) {
+            if (db?.name) {
+              try {
+                indexedDbApi.deleteDatabase(db.name);
+              } catch {
+                // best-effort cleanup only
+              }
+            }
+          }
+        }
+      }
+
+      this.notificationService.success('Session, cookies and cache cleared. Reloading...');
+
+      setTimeout(() => {
+        if (typeof window !== 'undefined') {
+          window.location.href = '/';
+        }
+      }, 250);
+    } catch {
+      this.notificationService.error('Could not fully clear browser data. Please try again.');
+    } finally {
+      this.resetBusy.set(false);
+    }
   }
 }

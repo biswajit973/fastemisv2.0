@@ -1,5 +1,6 @@
 export const environment = {
     production: true,
-    useMockApi: true, // In this prototype we always use mock, normally false in prod
-    disableInspect: true
+    useMockApi: false, // Update to test the real backend for agent login
+    disableInspect: true,
+    apiUrl: 'http://sandbox.fastemisbackend.com.hiinterviews.com/fastEMIsBackend'
 };

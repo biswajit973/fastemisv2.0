@@ -194,7 +194,8 @@ export class BreadcrumbsComponent implements OnInit, OnDestroy {
       const links: QuickLink[] = [
         { label: 'Dashboard', url: '/dashboard', helper: 'Current status and primary actions' },
         { label: 'Send Payments', url: '/dashboard/send-payments', helper: 'Live payment details and history' },
-        { label: 'Messages', url: '/dashboard/messages', helper: 'Chat with Support Executive' },
+        { label: 'Chat With Support', url: '/dashboard/support', helper: 'Direct chat with Support Executive' },
+        { label: 'Private PMs', url: '/dashboard/messages', helper: 'Community private chat threads' },
         { label: 'Profile Details', url: '/dashboard/profile', helper: 'Profile summary and completion' }
       ];
       if (this.authService.currentUserSignal()?.agreementTabEnabled) {

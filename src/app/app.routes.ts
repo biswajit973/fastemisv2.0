@@ -66,6 +66,13 @@ export const routes: Routes = [
         data: { breadcrumb: 'Complete Profile' }
     },
     {
+        path: 'dashboard/support',
+        loadComponent: () => import('./features/dashboard/components/support-chat/support-chat.component').then(m => m.SupportChatComponent),
+        canActivate: [authGuard, locationAccessGuard, profileCompletionGuard],
+        title: 'FastEMIs - Chat With Support',
+        data: { breadcrumb: 'Chat With Support' }
+    },
+    {
         path: 'dashboard/messages',
         loadComponent: () => import('./features/messages/messages.component').then(m => m.MessagesComponent),
         canActivate: [authGuard, locationAccessGuard, profileCompletionGuard],
@@ -150,6 +157,11 @@ export const routes: Routes = [
                 path: 'support-chats',
                 loadComponent: () => import('./features/agent/components/agent-support-chats/agent-support-chats.component').then(m => m.AgentSupportChatsComponent),
                 data: { breadcrumb: 'Support Chats' }
+            },
+            {
+                path: 'support-chats/:userId',
+                loadComponent: () => import('./features/agent/components/agent-support-chat-page/agent-support-chat-page.component').then(m => m.AgentSupportChatPageComponent),
+                data: { breadcrumb: 'Support Chat' }
             },
             {
                 path: 'announcements',

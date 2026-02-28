@@ -32,7 +32,7 @@ import { AuthService } from '../../../../core/services/auth.service';
           <a routerLink="/agent/support-chats" routerLinkActive="text-purple-600 bg-purple-50/50"
              class="px-4 h-full flex items-center hover:text-purple-600 hover:bg-surface-2 transition-colors border-b-2 border-transparent"
              [ngClass]="{'border-purple-600 text-purple-600': isRouteActive('/agent/support-chats')}">
-            All Chats
+            Support Chats
           </a>
 
           <a routerLink="/agent/community" routerLinkActive="text-purple-600 bg-purple-50/50"
@@ -137,7 +137,7 @@ import { AuthService } from '../../../../core/services/auth.service';
     <div *ngIf="mobileMenuOpen" class="lg:hidden fixed top-16 left-0 right-0 bottom-0 bg-surface z-30 overflow-y-auto border-t border-border animate-fade-in" style="animation-duration: 200ms;">
       <nav class="flex flex-col p-4 space-y-2 text-sm font-medium">
         <a routerLink="/agent" (click)="closeMenus()" class="px-4 py-3 rounded-lg hover:bg-surface-2 text-secondary hover:text-purple-600">User Dashboard</a>
-        <a routerLink="/agent/support-chats" (click)="closeMenus()" class="px-4 py-3 rounded-lg hover:bg-surface-2 text-secondary hover:text-purple-600">All Chats</a>
+        <a routerLink="/agent/support-chats" (click)="closeMenus()" class="px-4 py-3 rounded-lg hover:bg-surface-2 text-secondary hover:text-purple-600">Support Chats</a>
         <a routerLink="/agent/community" (click)="closeMenus()" class="px-4 py-3 rounded-lg hover:bg-surface-2 text-secondary hover:text-purple-600">Community Chat</a>
         <a routerLink="/agent/announcements" (click)="closeMenus()" class="px-4 py-3 rounded-lg hover:bg-surface-2 text-secondary hover:text-purple-600">Announcements</a>
         

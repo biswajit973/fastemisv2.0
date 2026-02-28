@@ -1,5 +1,5 @@
 import { Injectable, computed, signal } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { catchError, finalize, map, Observable, of, tap } from 'rxjs';
 import {
     AgentUserDetail,
@@ -42,7 +42,12 @@ export class AgentUserApiService {
                 }));
                 this.usersState.set(normalized);
             }),
-            catchError(() => of(this.usersState())),
+            catchError((error: unknown) => {
+                if (error instanceof HttpErrorResponse && error.status === 403) {
+                    this.usersState.set([]);
+                }
+                return of(this.usersState());
+            }),
             finalize(() => this.loadingState.set(false))
         );
     }

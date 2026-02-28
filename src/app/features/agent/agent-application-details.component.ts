@@ -99,6 +99,20 @@ import { AgentUserApiService } from '../../core/services/agent-user-api.service'
                     Open file
                   </a>
                 </div>
+                <div class="mt-2 flex items-center gap-2">
+                  <button
+                    type="button"
+                    (click)="openMediaPreview(field)"
+                    class="px-2.5 py-1 rounded-md border border-border text-xs text-primary hover:bg-surface-2">
+                    Preview
+                  </button>
+                  <a
+                    [href]="mediaUrl(field.value)"
+                    [attr.download]="fileName(field.value) || null"
+                    class="px-2.5 py-1 rounded-md border border-border text-xs text-primary no-underline hover:bg-surface-2">
+                    Download
+                  </a>
+                </div>
                 <p class="text-[11px] text-muted mt-1 break-all">{{ fileName(field.value) }}</p>
               </ng-container>
               <ng-template #textValueMobile>
@@ -142,6 +156,20 @@ import { AgentUserApiService } from '../../core/services/agent-user-api.service'
                           rel="noopener noreferrer"
                           class="inline-flex items-center gap-2 text-xs text-primary no-underline hover:underline">
                           Open file
+                        </a>
+                      </div>
+                      <div class="mt-2 flex items-center gap-2">
+                        <button
+                          type="button"
+                          (click)="openMediaPreview(field)"
+                          class="px-2.5 py-1 rounded-md border border-border text-xs text-primary hover:bg-surface-2">
+                          Preview
+                        </button>
+                        <a
+                          [href]="mediaUrl(field.value)"
+                          [attr.download]="fileName(field.value) || null"
+                          class="px-2.5 py-1 rounded-md border border-border text-xs text-primary no-underline hover:bg-surface-2">
+                          Download
                         </a>
                       </div>
                       <p class="text-[11px] text-muted mt-1 break-all">{{ fileName(field.value) }}</p>
@@ -195,6 +223,63 @@ import { AgentUserApiService } from '../../core/services/agent-user-api.service'
           User not found.
         </div>
       </ng-template>
+
+      <div *ngIf="previewField()" class="fixed inset-0 z-[95] bg-black/85 p-4 flex flex-col">
+        <div class="flex items-center justify-between text-white mb-3">
+          <div class="min-w-0">
+            <p class="text-sm font-medium truncate">{{ previewField()?.label }}</p>
+            <p class="text-xs text-white/70 truncate">{{ fileName(previewField()?.value || '') }}</p>
+          </div>
+          <button
+            type="button"
+            (click)="closeMediaPreview()"
+            class="w-9 h-9 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center">
+            X
+          </button>
+        </div>
+
+        <div class="flex-1 min-h-0 rounded-xl border border-white/20 bg-black/30 p-3 flex items-center justify-center overflow-auto">
+          <img
+            *ngIf="previewField() && mediaType(previewField()!.value) === 'image'"
+            [src]="mediaUrl(previewField()!.value)"
+            alt="Media preview"
+            class="max-h-full max-w-full object-contain rounded" />
+          <video
+            *ngIf="previewField() && mediaType(previewField()!.value) === 'video'"
+            [src]="mediaUrl(previewField()!.value)"
+            controls
+            autoplay
+            class="max-h-full max-w-full rounded bg-black"></video>
+          <iframe
+            *ngIf="previewField() && mediaType(previewField()!.value) === 'file' && isEmbeddableFile(previewField()!.value)"
+            [src]="mediaUrl(previewField()!.value)"
+            class="w-full h-full rounded bg-white"
+            title="File preview">
+          </iframe>
+          <div
+            *ngIf="previewField() && mediaType(previewField()!.value) === 'file' && !isEmbeddableFile(previewField()!.value)"
+            class="text-center text-white">
+            <p class="text-sm mb-3">Preview is not available for this file type.</p>
+            <a
+              [href]="mediaUrl(previewField()!.value)"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="inline-flex items-center rounded-lg border border-white/50 px-3 py-2 text-sm text-white no-underline">
+              Open File
+            </a>
+          </div>
+        </div>
+
+        <div class="pt-3 flex justify-end">
+          <a
+            *ngIf="previewField()"
+            [href]="mediaUrl(previewField()!.value)"
+            [attr.download]="fileName(previewField()!.value) || null"
+            class="inline-flex items-center rounded-lg border border-white/50 px-3 py-2 text-sm text-white no-underline hover:bg-white/10">
+            Download
+          </a>
+        </div>
+      </div>
     </div>
   `
 })
@@ -205,6 +290,7 @@ export class AgentApplicationDetailsComponent implements OnInit {
   readonly actionMessage = signal<string>('');
   readonly actionError = signal<boolean>(false);
   readonly activeTab = signal<'profile' | 'management'>('profile');
+  readonly previewField = signal<AgentFieldStatus | null>(null);
 
   private userId = '';
 
@@ -335,6 +421,22 @@ export class AgentApplicationDetailsComponent implements OnInit {
 
   mediaUrl(value: string): string {
     return String(value || '').trim();
+  }
+
+  openMediaPreview(field: AgentFieldStatus): void {
+    if (!this.isPreviewableMedia(field)) {
+      return;
+    }
+    this.previewField.set(field);
+  }
+
+  closeMediaPreview(): void {
+    this.previewField.set(null);
+  }
+
+  isEmbeddableFile(value: string): boolean {
+    const lower = String(value || '').toLowerCase();
+    return /\.(pdf|txt)$/i.test(lower);
   }
 
   fileName(value: string): string {

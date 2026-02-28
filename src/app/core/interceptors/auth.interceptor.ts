@@ -13,7 +13,9 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
     }
 
     const storage = inject(StorageService);
-    const token = storage.getCookie('jwt_token') || storage.getSessionToken();
+    // Prefer in-memory session token for the active runtime to avoid role-token
+    // mismatch when multiple tabs switch between user/agent logins.
+    const token = storage.getSessionToken() || storage.getCookie('jwt_token');
 
     if (token) {
         const cloned = req.clone({

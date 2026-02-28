@@ -92,7 +92,7 @@ import { ChatService, ChatThreadSummary } from '../../../../core/services/chat.s
                 {{ deleteBusyThreadId() === thread.userId ? 'Deleting...' : 'Delete Chat' }}
               </button>
 
-              <a [routerLink]="['/agent/chats/support', thread.userId]"
+              <a [routerLink]="['/agent/support-chats', thread.userId]"
                 class="px-4 py-2 rounded-lg border border-border bg-surface text-primary text-sm font-medium no-underline hover:border-primary transition-colors">
                 Open Support Chat
               </a>

@@ -105,7 +105,7 @@ export class CommunityService {
           this.settings.set(settings);
         }
 
-        return entries;
+        return this.sortFeedEntries(entries);
       }),
       tap((entries) => this.feed.set(entries)),
       catchError(() => of(this.feed()))
@@ -145,7 +145,29 @@ export class CommunityService {
     tone_guidelines?: string;
   }): Observable<CommunityPersona | null> {
     this.actionError.set('');
-    return this.http.post<{ ghost_member?: Record<string, unknown>; persona?: Record<string, unknown> }>('/api/community/ghost-members', payload).pipe(
+
+    const normalizedPayload = {
+      ...payload,
+      display_name: String(payload.display_name || '').trim(),
+      ghost_id: this.normalizeGhostId(payload.ghost_id),
+      identity_tag: String(payload.identity_tag || '').trim(),
+      info: String(payload.info || '').trim()
+    };
+
+    if (!normalizedPayload.display_name) {
+      this.actionError.set('display_name: Display name is required.');
+      return of(null);
+    }
+    if (normalizedPayload.ghost_id.length < 3) {
+      this.actionError.set('ghost_id: Ghost ID must match [A-Za-z0-9_-]{3,40}.');
+      return of(null);
+    }
+    if (!normalizedPayload.identity_tag) {
+      this.actionError.set('identity_tag: Identity tag is required.');
+      return of(null);
+    }
+
+    return this.http.post<{ ghost_member?: Record<string, unknown>; persona?: Record<string, unknown> }>('/api/community/ghost-members', normalizedPayload).pipe(
       map((response) => this.mapPersona(response?.ghost_member || response?.persona || null)),
       tap((created) => {
         if (!created) return;
@@ -337,12 +359,12 @@ export class CommunityService {
       if (!post.parent_id) {
         const exists = entries.find((entry) => entry.post.id === post.id);
         if (exists) {
-          return entries.map((entry) => entry.post.id === post.id
+          return this.sortFeedEntries(entries.map((entry) => entry.post.id === post.id
             ? { ...entry, post }
             : entry
-          );
+          ));
         }
-        return [{ post, replies: [], reply_count: 0 }, ...entries];
+        return this.sortFeedEntries([...entries, { post, replies: [], reply_count: 0 }]);
       }
 
       let parentFound = false;
@@ -362,7 +384,20 @@ export class CommunityService {
       if (!parentFound) {
         this.loadFeed().subscribe();
       }
-      return next;
+      return this.sortFeedEntries(next);
+    });
+  }
+
+  private sortFeedEntries(entries: CommunityFeedEntry[]): CommunityFeedEntry[] {
+    return [...entries].sort((a, b) => {
+      const aTs = new Date(a.post.created_at).getTime();
+      const bTs = new Date(b.post.created_at).getTime();
+      const aSafe = Number.isFinite(aTs) ? aTs : 0;
+      const bSafe = Number.isFinite(bTs) ? bTs : 0;
+      if (aSafe !== bSafe) {
+        return aSafe - bSafe;
+      }
+      return a.post.id - b.post.id;
     });
   }
 
@@ -498,5 +533,16 @@ export class CommunityService {
       return payload.trim();
     }
     return fallback;
+  }
+
+  private normalizeGhostId(value: string): string {
+    return String(value || '')
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, '_')
+      .replace(/[^a-z0-9_-]/g, '_')
+      .replace(/_+/g, '_')
+      .replace(/^_+|_+$/g, '')
+      .slice(0, 40);
   }
 }

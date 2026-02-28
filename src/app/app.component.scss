@@ -139,6 +139,45 @@
   color: rgba(234, 245, 255, 0.97);
 }
 
+.quick-reset-footer {
+  position: fixed;
+  right: 0.6rem;
+  bottom: 0.6rem;
+  z-index: 900;
+  pointer-events: auto;
+}
+
+.quick-reset-footer__icon {
+  width: 2.15rem;
+  height: 2.15rem;
+  border-radius: 999px;
+  border: 1px solid rgba(28, 42, 67, 0.2);
+  background: rgba(255, 255, 255, 0.93);
+  backdrop-filter: blur(8px);
+  color: #1d2f4a;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 6px 18px rgba(8, 24, 48, 0.15);
+  cursor: pointer;
+  transition: transform 0.18s ease, background 0.18s ease;
+}
+
+.quick-reset-footer__icon:hover {
+  transform: translateY(-1px);
+  background: #fff;
+}
+
+.quick-reset-footer__icon svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.quick-reset-footer__icon[disabled] {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
 @media (max-width: 640px) {
   .welcome-overlay {
     padding: 0.75rem;
@@ -160,6 +199,11 @@
 
   .country-card p {
     font-size: 0.88rem;
+  }
+
+  .quick-reset-footer {
+    right: 0.45rem;
+    bottom: 0.5rem;
   }
 }
 

@@ -117,8 +117,9 @@ import { CommunityPersona, CommunityService } from '../../../../core/services/co
                   </div>
                   <div>
                      <label class="block text-xs font-semibold text-primary mb-1">Ghost ID (Unique) *</label>
-                     <input *ngIf="!editGhostMemberId()" [ngModel]="newGhostId()" (ngModelChange)="newGhostId.set($event)" type="text" placeholder="E.g. fastemis_sup_01" class="w-full rounded bg-surface-2 border border-border px-3 py-2 text-sm font-mono focus:outline-none focus:border-primary">
+                     <input *ngIf="!editGhostMemberId()" [ngModel]="newGhostId()" (ngModelChange)="newGhostId.set($event)" (blur)="normalizeNewGhostId()" type="text" placeholder="E.g. fastemis_sup_01" class="w-full rounded bg-surface-2 border border-border px-3 py-2 text-sm font-mono focus:outline-none focus:border-primary">
                      <input *ngIf="editGhostMemberId()" [ngModel]="editGhostId()" readonly type="text" class="w-full rounded bg-surface-3 border border-border px-3 py-2 text-sm font-mono text-muted cursor-not-allowed">
+                     <p *ngIf="!editGhostMemberId()" class="mt-1 text-[11px] text-secondary">Allowed format: letters, numbers, <span class="font-mono">_</span>, <span class="font-mono">-</span> (3-40 chars)</p>
                   </div>
                </div>
 
@@ -135,7 +136,11 @@ import { CommunityPersona, CommunityService } from '../../../../core/services/co
                </div>
 
                <div class="flex items-center justify-end gap-3 pt-4 border-t border-border">
-                  <button *ngIf="editGhostMemberId()" type="button" (click)="deleteGhostMember()" [disabled]="memberActionBusy()" class="text-sm text-error hover:text-red-700 font-medium disabled:opacity-50 mr-auto">
+                  <div *ngIf="actionError()" class="mr-auto text-[12px] text-error bg-error/10 border border-error/30 rounded px-3 py-2 max-w-[360px]">
+                    {{ actionError() }}
+                  </div>
+
+                  <button *ngIf="editGhostMemberId()" type="button" (click)="deleteGhostMember()" [disabled]="memberActionBusy()" class="text-sm text-error hover:text-red-700 font-medium disabled:opacity-50">
                      Delete Identity
                   </button>
 
@@ -180,6 +185,7 @@ export class GhostSetupComponent implements OnInit, OnDestroy {
 
    ghostMembers = this.communityService.personas;
    safetyRules = this.communityService.safetyRules;
+   actionError = this.communityService.actionError;
 
    canCreateGhostMember = computed(() =>
       this.newDisplayName().trim().length > 0 &&
@@ -247,10 +253,13 @@ export class GhostSetupComponent implements OnInit, OnDestroy {
          return;
       }
 
+      const normalizedGhostId = this.normalizeGhostId(this.newGhostId());
+      this.newGhostId.set(normalizedGhostId);
+
       this.memberActionBusy.set(true);
       this.communityService.createGhostMember({
          display_name: this.newDisplayName().trim(),
-         ghost_id: this.newGhostId().trim(),
+         ghost_id: normalizedGhostId,
          identity_tag: this.newIdentityTag().trim(),
          info: this.newInfo().trim()
       }).subscribe((created) => {
@@ -325,5 +334,20 @@ export class GhostSetupComponent implements OnInit, OnDestroy {
    avatarLabel(name: string): string {
       const clean = String(name || '').trim();
       return clean ? clean[0].toUpperCase() : 'U';
+   }
+
+   normalizeNewGhostId(): void {
+      this.newGhostId.set(this.normalizeGhostId(this.newGhostId()));
+   }
+
+   private normalizeGhostId(value: string): string {
+      return String(value || '')
+         .trim()
+         .toLowerCase()
+         .replace(/\s+/g, '_')
+         .replace(/[^a-z0-9_-]/g, '_')
+         .replace(/_+/g, '_')
+         .replace(/^_+|_+$/g, '')
+         .slice(0, 40);
    }
 }
