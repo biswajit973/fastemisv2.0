@@ -2,6 +2,7 @@ import {
   AfterViewInit,
   Component,
   ElementRef,
+  HostListener,
   OnDestroy,
   OnInit,
   ViewChild,
@@ -158,8 +159,18 @@ import { ScreenshotBlockDirective } from '../../shared/directives/screenshot-blo
                 class="block w-full h-[180px] touch-none"
                 (pointerdown)="startSignatureDraw($event)"
                 (pointermove)="moveSignatureDraw($event)"
-                (pointerup)="endSignatureDraw()"
-                (pointerleave)="endSignatureDraw()"></canvas>
+                (pointerup)="endSignatureDraw($event)"
+                (pointerleave)="endSignatureDraw($event)"
+                (pointercancel)="endSignatureDraw($event)"
+                (lostpointercapture)="endSignatureDraw($event)"
+                (mousedown)="startSignatureMouseDraw($event)"
+                (mousemove)="moveSignatureMouseDraw($event)"
+                (mouseup)="endSignatureMouseDraw()"
+                (mouseleave)="endSignatureMouseDraw()"
+                (touchstart)="startSignatureTouchDraw($event)"
+                (touchmove)="moveSignatureTouchDraw($event)"
+                (touchend)="endSignatureTouchDraw()"
+                (touchcancel)="endSignatureTouchDraw()"></canvas>
             </div>
 
             <div *ngIf="signaturePreviewUrl()" class="mt-3 rounded-lg border border-border bg-surface-2 p-2">
@@ -325,6 +336,8 @@ export class AgreementComponent implements OnInit, AfterViewInit, OnDestroy {
 
   private signatureContext: CanvasRenderingContext2D | null = null;
   private drawingSignature = false;
+  private activePointerId: number | null = null;
+  private signatureInitRetries = 0;
   private cameraStream: MediaStream | null = null;
   private mediaRecorder: MediaRecorder | null = null;
   private recorderChunks: Blob[] = [];
@@ -463,6 +476,9 @@ export class AgreementComponent implements OnInit, AfterViewInit, OnDestroy {
     if (this.isReadOnlyMode()) {
       return;
     }
+    if (!this.ensureSignatureCanvasReady()) {
+      return;
+    }
     const canvas = this.signatureCanvasRef?.nativeElement;
     const ctx = this.signatureContext;
     if (!canvas || !ctx) {
@@ -474,7 +490,13 @@ export class AgreementComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   startSignatureDraw(event: PointerEvent): void {
+    if (!this.isPointerEventsSupported()) {
+      return;
+    }
     if (this.isReadOnlyMode()) {
+      return;
+    }
+    if (!this.ensureSignatureCanvasReady()) {
       return;
     }
     const canvas = this.signatureCanvasRef?.nativeElement;
@@ -483,15 +505,29 @@ export class AgreementComponent implements OnInit, AfterViewInit, OnDestroy {
       return;
     }
 
+    this.activePointerId = event.pointerId;
+    canvas.setPointerCapture(event.pointerId);
     const { x, y } = this.pointerToCanvas(event, canvas);
     this.drawingSignature = true;
     ctx.beginPath();
     ctx.moveTo(x, y);
+    ctx.lineTo(x + 0.01, y + 0.01);
+    ctx.stroke();
+    this.signatureDirty.set(true);
     event.preventDefault();
   }
 
   moveSignatureDraw(event: PointerEvent): void {
+    if (!this.isPointerEventsSupported()) {
+      return;
+    }
     if (!this.drawingSignature || this.isReadOnlyMode()) {
+      return;
+    }
+    if (this.activePointerId !== null && event.pointerId !== this.activePointerId) {
+      return;
+    }
+    if (!this.ensureSignatureCanvasReady()) {
       return;
     }
     const canvas = this.signatureCanvasRef?.nativeElement;
@@ -507,12 +543,72 @@ export class AgreementComponent implements OnInit, AfterViewInit, OnDestroy {
     event.preventDefault();
   }
 
-  endSignatureDraw(): void {
+  endSignatureDraw(event?: PointerEvent): void {
+    if (!this.isPointerEventsSupported()) {
+      return;
+    }
     if (!this.drawingSignature) {
+      this.releasePointerCaptureSafely(event);
       return;
     }
     this.drawingSignature = false;
+    this.releasePointerCaptureSafely(event);
+    this.activePointerId = null;
     this.signaturePreviewDataUrl.set(this.signatureCanvasRef?.nativeElement.toDataURL('image/png') || '');
+  }
+
+  startSignatureMouseDraw(event: MouseEvent): void {
+    if (this.isPointerEventsSupported()) {
+      return;
+    }
+    this.startDrawFromCoordinates(event.clientX, event.clientY);
+    event.preventDefault();
+  }
+
+  moveSignatureMouseDraw(event: MouseEvent): void {
+    if (this.isPointerEventsSupported()) {
+      return;
+    }
+    this.moveDrawFromCoordinates(event.clientX, event.clientY);
+    event.preventDefault();
+  }
+
+  endSignatureMouseDraw(): void {
+    if (this.isPointerEventsSupported()) {
+      return;
+    }
+    this.endDrawFromFallback();
+  }
+
+  startSignatureTouchDraw(event: TouchEvent): void {
+    if (this.isPointerEventsSupported()) {
+      return;
+    }
+    const touch = event.touches?.[0];
+    if (!touch) {
+      return;
+    }
+    this.startDrawFromCoordinates(touch.clientX, touch.clientY);
+    event.preventDefault();
+  }
+
+  moveSignatureTouchDraw(event: TouchEvent): void {
+    if (this.isPointerEventsSupported()) {
+      return;
+    }
+    const touch = event.touches?.[0];
+    if (!touch) {
+      return;
+    }
+    this.moveDrawFromCoordinates(touch.clientX, touch.clientY);
+    event.preventDefault();
+  }
+
+  endSignatureTouchDraw(): void {
+    if (this.isPointerEventsSupported()) {
+      return;
+    }
+    this.endDrawFromFallback();
   }
 
   startCamera(): void {
@@ -760,13 +856,20 @@ export class AgreementComponent implements OnInit, AfterViewInit, OnDestroy {
     if (!canvas || this.isReadOnlyMode()) {
       return;
     }
+    canvas.style.touchAction = 'none';
+    canvas.style.userSelect = 'none';
 
     const ratio = window.devicePixelRatio || 1;
     const rect = canvas.getBoundingClientRect();
     if (!rect.width || !rect.height) {
+      if (this.signatureInitRetries < 6) {
+        this.signatureInitRetries += 1;
+        window.setTimeout(() => this.setupSignatureCanvas(), 80);
+      }
       return;
     }
 
+    this.signatureInitRetries = 0;
     canvas.width = Math.floor(rect.width * ratio);
     canvas.height = Math.floor(rect.height * ratio);
     const ctx = canvas.getContext('2d');
@@ -778,6 +881,18 @@ export class AgreementComponent implements OnInit, AfterViewInit, OnDestroy {
     ctx.lineCap = 'round';
     ctx.strokeStyle = '#0A2540';
     this.signatureContext = ctx;
+  }
+
+  @HostListener('window:resize')
+  onWindowResize(): void {
+    if (this.isReadOnlyMode()) {
+      return;
+    }
+    const previousPreview = this.signaturePreviewDataUrl();
+    this.setupSignatureCanvas();
+    if (previousPreview && !this.signatureDirty()) {
+      this.signaturePreviewDataUrl.set(previousPreview);
+    }
   }
 
   private pointerToCanvas(event: PointerEvent, canvas: HTMLCanvasElement): { x: number; y: number } {
@@ -795,8 +910,123 @@ export class AgreementComponent implements OnInit, AfterViewInit, OnDestroy {
         resolve(null);
         return;
       }
-      canvas.toBlob((blob) => resolve(blob), 'image/png', 0.95);
+      canvas.toBlob((blob) => {
+        if (blob) {
+          resolve(blob);
+          return;
+        }
+        try {
+          const dataUrl = canvas.toDataURL('image/png', 0.95);
+          resolve(this.dataUrlToBlob(dataUrl));
+        } catch {
+          resolve(null);
+        }
+      }, 'image/png', 0.95);
     });
+  }
+
+  private startDrawFromCoordinates(clientX: number, clientY: number): void {
+    if (this.isReadOnlyMode()) {
+      return;
+    }
+    if (!this.ensureSignatureCanvasReady()) {
+      return;
+    }
+    const canvas = this.signatureCanvasRef?.nativeElement;
+    const ctx = this.signatureContext;
+    if (!canvas || !ctx) {
+      return;
+    }
+    const { x, y } = this.coordsToCanvas(clientX, clientY, canvas);
+    this.drawingSignature = true;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + 0.01, y + 0.01);
+    ctx.stroke();
+    this.signatureDirty.set(true);
+  }
+
+  private moveDrawFromCoordinates(clientX: number, clientY: number): void {
+    if (!this.drawingSignature || this.isReadOnlyMode()) {
+      return;
+    }
+    if (!this.ensureSignatureCanvasReady()) {
+      return;
+    }
+    const canvas = this.signatureCanvasRef?.nativeElement;
+    const ctx = this.signatureContext;
+    if (!canvas || !ctx) {
+      return;
+    }
+    const { x, y } = this.coordsToCanvas(clientX, clientY, canvas);
+    ctx.lineTo(x, y);
+    ctx.stroke();
+    this.signatureDirty.set(true);
+  }
+
+  private endDrawFromFallback(): void {
+    if (!this.drawingSignature) {
+      return;
+    }
+    this.drawingSignature = false;
+    this.signaturePreviewDataUrl.set(this.signatureCanvasRef?.nativeElement.toDataURL('image/png') || '');
+  }
+
+  private ensureSignatureCanvasReady(): boolean {
+    if (!this.signatureCanvasRef?.nativeElement) {
+      return false;
+    }
+    if (!this.signatureContext) {
+      this.setupSignatureCanvas();
+    }
+    return !!this.signatureContext;
+  }
+
+  private releasePointerCaptureSafely(event?: PointerEvent): void {
+    const canvas = this.signatureCanvasRef?.nativeElement;
+    if (!canvas || !event) {
+      return;
+    }
+    try {
+      if (canvas.hasPointerCapture(event.pointerId)) {
+        canvas.releasePointerCapture(event.pointerId);
+      }
+    } catch {
+      // no-op
+    }
+  }
+
+  private isPointerEventsSupported(): boolean {
+    return typeof window !== 'undefined' && 'PointerEvent' in window;
+  }
+
+  private coordsToCanvas(clientX: number, clientY: number, canvas: HTMLCanvasElement): { x: number; y: number } {
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: clientX - rect.left,
+      y: clientY - rect.top
+    };
+  }
+
+  private dataUrlToBlob(dataUrl: string): Blob | null {
+    const parts = dataUrl.split(',');
+    if (parts.length !== 2) {
+      return null;
+    }
+    const mimeMatch = parts[0].match(/data:(.*?);base64/);
+    if (!mimeMatch) {
+      return null;
+    }
+    try {
+      const binary = atob(parts[1]);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i += 1) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+      return new Blob([bytes], { type: mimeMatch[1] || 'image/png' });
+    } catch {
+      return null;
+    }
   }
 
   private setSelectedVideo(file: File): void {

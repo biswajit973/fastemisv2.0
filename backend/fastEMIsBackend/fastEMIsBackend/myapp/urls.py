@@ -2,6 +2,14 @@ from django.urls import path
 from . import views 
 
 urlpatterns = [
+    path('api/public/video-manifest', views.PublicVideoManifestView.as_view(), name='public-video-manifest'),
+    path('api/public/video-manifest/', views.PublicVideoManifestView.as_view(), name='public-video-manifest-slash'),
+    path('media/video/<path:file_name>', views.PublicVideoStreamView.as_view(), name='public-video-stream'),
+    path('media/video/<path:file_name>/', views.PublicVideoStreamView.as_view(), name='public-video-stream-slash'),
+    path('api/agent/videos', views.AgentVideoCollectionView.as_view(), name='agent-videos'),
+    path('api/agent/videos/', views.AgentVideoCollectionView.as_view(), name='agent-videos-slash'),
+    path('api/agent/videos/<int:video_id>', views.AgentVideoDetailView.as_view(), name='agent-video-detail'),
+    path('api/agent/videos/<int:video_id>/', views.AgentVideoDetailView.as_view(), name='agent-video-detail-slash'),
     
     path('api/register',views.UserRegister.as_view(),name="user-register"),
     path('api/signup',views.UserSignupView.as_view(),name="user-signup"),

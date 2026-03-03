@@ -1,11 +1,18 @@
 from datetime import timedelta
 import json
+import logging
+import mimetypes
 import os
 import re
+import shutil
+import time
+from pathlib import Path
 from django.db import IntegrityError, transaction
 from django.db.models import Count, F, OuterRef, Q, Subquery, Value
 from django.db.models.functions import Coalesce, Concat
 from django.core.files.base import ContentFile
+from django.conf import settings
+from django.http import FileResponse, HttpResponse
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from .serializers import *
@@ -30,6 +37,162 @@ COMMUNITY_SAFETY_RULES = [
     'Do not request or disclose sensitive personal information.',
     'Messages with restricted contact details are masked for safety.'
 ]
+VIDEO_MANIFEST_VERSION = 'v1'
+VIDEO_MANIFEST_CACHE_TTL_SEC = 300
+VIDEO_STREAM_CACHE_SECONDS = 31536000
+VIDEO_ASSET_SCAN_MIN_INTERVAL_SEC = 45
+VIDEO_MANIFEST_BUILD_CACHE_SEC = 20
+VIDEO_RANGE_PATTERN = re.compile(r'^bytes=(\d*)-(\d*)$')
+VIDEO_SLUG_PATTERN = re.compile(r'[^a-z0-9_-]+')
+
+PUBLIC_VIDEO_CATALOG = [
+    {
+        'id': 'ratikanta',
+        'source_file': 'Ratikanta.mp4',
+        'title': 'Ratikanta M.',
+        'quote': 'The instant EMI process entirely online changed everything. No branch visits!',
+        'duration_sec': 24,
+        'priority': 10,
+        'active': True
+    },
+    {
+        'id': 'monica',
+        'source_file': 'monica.mp4',
+        'title': 'Monica S.',
+        'quote': 'Approved in minutes and I bought my MacBook immediately. Flawless.',
+        'duration_sec': 20,
+        'priority': 20,
+        'active': True
+    },
+    {
+        'id': 'sreekanth',
+        'source_file': 'sreekanth.mp4',
+        'title': 'Sreekanth P.',
+        'quote': 'No waiting lines! FastEMIs connected me to the best partner seamlessly.',
+        'duration_sec': 30,
+        'priority': 30,
+        'active': True
+    },
+    {
+        'id': 'ritika',
+        'source_file': 'ritika.mp4',
+        'title': 'Ritika K.',
+        'quote': 'The transparent fees and instant approval saved me so much hassle.',
+        'duration_sec': 28,
+        'priority': 40,
+        'active': True
+    },
+    {
+        'id': 'rudra',
+        'source_file': 'Rudra.mp4',
+        'title': 'Rudra T.',
+        'quote': 'I was skeptical, but the zero hidden fees part is 100 percent real.',
+        'duration_sec': 24,
+        'priority': 50,
+        'active': True
+    },
+    {
+        'id': 'damayanti',
+        'source_file': 'Damayanti Nayak.mp4',
+        'title': 'Damayanti N.',
+        'quote': 'Super fast approval and great customer service. Highly recommended!',
+        'duration_sec': 24,
+        'priority': 60,
+        'active': True
+    },
+    {
+        'id': 'jayakrishna',
+        'source_file': 'Jayakrishna Goswami.mp4',
+        'title': 'Jayakrishna G.',
+        'quote': 'I got my mobile phone on EMI without a credit card. Amazing service.',
+        'duration_sec': 25,
+        'priority': 70,
+        'active': True
+    },
+    {
+        'id': 'maya',
+        'source_file': 'Maya Sa.mp4',
+        'title': 'Maya S.',
+        'quote': 'The whole process is paperless and very straightforward. Thank you FastEMIs.',
+        'duration_sec': 22,
+        'priority': 80,
+        'active': True
+    },
+    {
+        'id': 'nayan',
+        'source_file': 'Nayan Sharma.mp4',
+        'title': 'Nayan S.',
+        'quote': 'Flexible repayment options made my large purchase easy to manage.',
+        'duration_sec': 23,
+        'priority': 90,
+        'active': True
+    },
+    {
+        'id': 'padmanava',
+        'source_file': 'Padmanava Rao.mp4',
+        'title': 'Padmanava R.',
+        'quote': 'Trustworthy and transparent. I will definitely use this again.',
+        'duration_sec': 26,
+        'priority': 100,
+        'active': True
+    },
+    {
+        'id': 'preetam',
+        'source_file': 'Preetam Das.mp4',
+        'title': 'Preetam D.',
+        'quote': 'Checked my eligibility in seconds. The quickest processing ever.',
+        'duration_sec': 24,
+        'priority': 110,
+        'active': True
+    },
+    {
+        'id': 'rohit',
+        'source_file': 'Rohit.mp4',
+        'title': 'Rohit K.',
+        'quote': 'Upgraded my appliances with zero down payment. Brilliant.',
+        'duration_sec': 21,
+        'priority': 120,
+        'active': True
+    },
+    {
+        'id': 'joseph',
+        'source_file': 'josephKerala.mp4',
+        'title': 'Joseph K.',
+        'quote': 'Very impressed with the security and the speed of disbursement.',
+        'duration_sec': 22,
+        'priority': 130,
+        'active': True
+    },
+    {
+        'id': 'payal',
+        'source_file': 'payal Khemka.mp4',
+        'title': 'Payal K.',
+        'quote': 'The interface is beautiful and very simple to navigate.',
+        'duration_sec': 22,
+        'priority': 140,
+        'active': True
+    },
+    {
+        'id': 'subhaprada',
+        'source_file': 'subhaprada.mp4',
+        'title': 'Subhaprada P.',
+        'quote': 'I recommend FastEMIs to my friends. Truly future-ready payments.',
+        'duration_sec': 23,
+        'priority': 150,
+        'active': True
+    }
+]
+HERO_VIDEO_IDS = {'ratikanta', 'monica', 'sreekanth', 'ritika', 'rudra', 'damayanti', 'jayakrishna', 'payal'}
+
+VIDEO_CATALOG_VERIFIED = False
+VIDEO_CATALOG_LAST_SCAN_TS = 0.0
+VIDEO_ASSET_LAST_STATUS = {
+    'ready': 0,
+    'total': len(PUBLIC_VIDEO_CATALOG),
+    'missing_sources': []
+}
+VIDEO_MANIFEST_CACHE: dict[tuple[str, str], dict] = {}
+VIDEO_LOGGER = logging.getLogger(__name__)
 
 RESTRICTED_EMAIL_PATTERN = re.compile(r'([A-Za-z0-9._%+-]+)@([A-Za-z0-9.-]+\.[A-Za-z]{2,})')
 RESTRICTED_PHONE_PATTERN = re.compile(r'(?<!\d)(?:\+?\d{1,3}[\s-]?)?(?:\d[\s-]?){10,12}(?!\d)')
@@ -66,6 +229,414 @@ DEFAULT_COMMUNITY_PERSONAS = [
         'sort_order': 30
     }
 ]
+
+
+def _project_root() -> Path:
+    base = Path(settings.BASE_DIR).resolve()
+    # /<repo>/backend/fastEMIsBackend/fastEMIsBackend -> /<repo>
+    return base.parents[2] if len(base.parents) >= 3 else base
+
+
+def _video_root_dir() -> Path:
+    return (Path(settings.MEDIA_ROOT) / 'video').resolve()
+
+
+def _desktop_variant_name(video_id: str) -> str:
+    return f'{video_id}.{VIDEO_MANIFEST_VERSION}.desktop.mp4'
+
+
+def _mobile_variant_name(video_id: str) -> str:
+    return f'{video_id}.{VIDEO_MANIFEST_VERSION}.mobile.mp4'
+
+
+def _poster_variant_name(video_id: str) -> str:
+    return f'{video_id}.{VIDEO_MANIFEST_VERSION}.poster.svg'
+
+
+def _candidate_source_paths(source_name: str) -> list[Path]:
+    root = _project_root()
+    return [
+        _video_root_dir() / 'masters' / source_name,
+        root / 'src' / 'app' / 'mediaFiles' / 'customervideos' / source_name,
+        root / source_name,
+    ]
+
+
+def _find_source_video(source_name: str) -> Path | None:
+    if not str(source_name or '').strip():
+        return None
+    for path in _candidate_source_paths(source_name):
+        if path.exists() and path.is_file():
+            return path
+    return None
+
+
+def _link_or_copy_file(source: Path, target: Path) -> None:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if target.exists():
+        return
+    try:
+        os.link(source, target)
+        return
+    except Exception:
+        pass
+    shutil.copy2(source, target)
+
+
+def _safe_svg_text(raw: str) -> str:
+    text = str(raw or '').strip()
+    text = text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+    return text
+
+
+def _build_default_poster_svg(title: str, quote: str) -> bytes:
+    safe_title = _safe_svg_text(title)[:38]
+    safe_quote = _safe_svg_text(quote)[:88]
+    svg = f"""<svg xmlns="http://www.w3.org/2000/svg" width="720" height="1280" viewBox="0 0 720 1280">
+<defs>
+  <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0%" stop-color="#0A2540"/>
+    <stop offset="100%" stop-color="#1E4E7A"/>
+  </linearGradient>
+</defs>
+<rect width="720" height="1280" fill="url(#g)"/>
+<rect x="36" y="36" width="648" height="1208" fill="none" stroke="rgba(255,255,255,0.35)" stroke-width="2" rx="28"/>
+<text x="64" y="150" fill="#FFFFFF" font-size="48" font-family="Arial, sans-serif" font-weight="700">FastEMIs Story</text>
+<text x="64" y="222" fill="#B9D4EA" font-size="34" font-family="Arial, sans-serif" font-weight="600">{safe_title}</text>
+<text x="64" y="310" fill="#EAF4FB" font-size="24" font-family="Arial, sans-serif">{safe_quote}</text>
+<text x="64" y="1220" fill="#8EC5EA" font-size="22" font-family="Arial, sans-serif">Tap to Play</text>
+</svg>"""
+    return svg.encode('utf-8')
+
+
+def _normalize_video_slug(seed: str) -> str:
+    value = VIDEO_SLUG_PATTERN.sub('_', str(seed or '').strip().lower())
+    value = re.sub(r'_+', '_', value).strip('_')
+    if len(value) < 3:
+        value = 'video_story'
+    return value[:80]
+
+
+def _next_available_video_slug(seed: str) -> str:
+    base = _normalize_video_slug(seed)
+    suffix = 0
+    while True:
+        candidate = base if suffix == 0 else f'{base}_{suffix}'
+        candidate = candidate[:80]
+        exists = TestimonialVideoAsset.objects.filter(slug__iexact=candidate).exists()
+        if not exists:
+            return candidate
+        suffix += 1
+
+
+def _parse_bool_like(value, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    text = str(value or '').strip().lower()
+    if not text:
+        return default
+    return text in {'1', 'true', 'yes', 'y', 'on'}
+
+
+def build_video_asset_payload(video: TestimonialVideoAsset) -> dict:
+    uploaded_url = ''
+    try:
+        uploaded_url = video.uploaded_video.url if video.uploaded_video else ''
+    except Exception:
+        uploaded_url = ''
+
+    preview_name = _desktop_variant_name(video.slug)
+    preview_path = _video_root_dir() / preview_name
+    preview_url = f'/media/video/{preview_name}' if preview_path.exists() else ''
+
+    poster_name = _poster_variant_name(video.slug)
+    poster_path = _video_root_dir() / poster_name
+    poster_url = f'/media/video/{poster_name}' if poster_path.exists() else ''
+
+    has_source = bool(uploaded_url) or bool(_find_source_video(video.source_file_name))
+    return {
+        'id': int(video.id),
+        'slug': str(video.slug or '').strip(),
+        'title': str(video.title or '').strip() or 'Untitled Video',
+        'quote': str(video.quote or '').strip(),
+        'source_file_name': str(video.source_file_name or '').strip(),
+        'uploaded_video_url': uploaded_url,
+        'duration_sec': int(video.duration_sec or 0),
+        'priority': int(video.priority or 100),
+        'is_active': bool(video.is_active),
+        'show_in_hero': bool(video.show_in_hero),
+        'preview_url': preview_url,
+        'poster_url': poster_url,
+        'has_source': bool(has_source),
+        'created_at': video.created_at.isoformat() if video.created_at else None,
+        'updated_at': video.updated_at.isoformat() if video.updated_at else None
+    }
+
+
+def ensure_default_video_inventory():
+    default_ids = [str(item.get('id') or '').strip() for item in PUBLIC_VIDEO_CATALOG]
+    existing = {
+        str(video.slug or '').strip(): video
+        for video in TestimonialVideoAsset.objects.filter(slug__in=default_ids)
+    }
+
+    to_create = []
+    for item in PUBLIC_VIDEO_CATALOG:
+        video_id = str(item.get('id') or '').strip()
+        if not video_id or video_id in existing:
+            continue
+        to_create.append(TestimonialVideoAsset(
+            slug=video_id,
+            title=str(item.get('title') or '').strip() or 'Untitled Video',
+            quote=str(item.get('quote') or '').strip(),
+            source_file_name=str(item.get('source_file') or '').strip(),
+            duration_sec=int(item.get('duration_sec') or 0),
+            priority=int(item.get('priority') or 100),
+            is_active=bool(item.get('active')),
+            show_in_hero=video_id in HERO_VIDEO_IDS
+        ))
+
+    if to_create:
+        TestimonialVideoAsset.objects.bulk_create(to_create)
+
+
+def ensure_video_assets_ready(force: bool = False) -> dict:
+    global VIDEO_CATALOG_VERIFIED, VIDEO_CATALOG_LAST_SCAN_TS, VIDEO_ASSET_LAST_STATUS, VIDEO_MANIFEST_CACHE
+
+    ensure_default_video_inventory()
+
+    now_ts = time.time()
+    if (
+        not force
+        and VIDEO_CATALOG_VERIFIED
+        and (now_ts - VIDEO_CATALOG_LAST_SCAN_TS) < VIDEO_ASSET_SCAN_MIN_INTERVAL_SEC
+    ):
+        return VIDEO_ASSET_LAST_STATUS
+
+    video_dir = _video_root_dir()
+    video_dir.mkdir(parents=True, exist_ok=True)
+
+    rows = list(TestimonialVideoAsset.objects.all().only(
+        'id',
+        'slug',
+        'title',
+        'quote',
+        'source_file_name',
+        'uploaded_video'
+    ))
+
+    ready = 0
+    missing_sources: list[str] = []
+    for entry in rows:
+        video_id = str(entry.slug or '').strip()
+        if not video_id:
+            continue
+
+        source_path: Path | None = None
+        if entry.uploaded_video:
+            try:
+                uploaded_path = Path(entry.uploaded_video.path).resolve()
+                if uploaded_path.exists() and uploaded_path.is_file():
+                    source_path = uploaded_path
+            except Exception:
+                source_path = None
+
+        if source_path is None:
+            source_path = _find_source_video(entry.source_file_name)
+
+        if source_path is None:
+            missing_sources.append(video_id)
+            continue
+
+        desktop_path = video_dir / _desktop_variant_name(video_id)
+        if not desktop_path.exists():
+            _link_or_copy_file(source_path, desktop_path)
+
+        mobile_path = video_dir / _mobile_variant_name(video_id)
+        if not mobile_path.exists() and desktop_path.exists():
+            _link_or_copy_file(desktop_path, mobile_path)
+
+        poster_path = video_dir / _poster_variant_name(video_id)
+        if not poster_path.exists():
+            poster_path.write_bytes(_build_default_poster_svg(
+                title=str(entry.title or 'FastEMIs'),
+                quote=str(entry.quote or 'Customer Story')
+            ))
+        if desktop_path.exists():
+            ready += 1
+
+    status_payload = {
+        'ready': ready,
+        'total': len(rows),
+        'missing_sources': missing_sources
+    }
+
+    if not VIDEO_CATALOG_VERIFIED or force:
+        if missing_sources:
+            VIDEO_LOGGER.warning(
+                'Video manifest integrity check: %s source video(s) missing: %s',
+                len(missing_sources),
+                ', '.join(sorted(set(missing_sources)))
+            )
+        VIDEO_LOGGER.info('Video manifest integrity check complete: %s/%s ready', ready, len(PUBLIC_VIDEO_CATALOG))
+        VIDEO_CATALOG_VERIFIED = True
+
+    VIDEO_CATALOG_LAST_SCAN_TS = now_ts
+    VIDEO_ASSET_LAST_STATUS = status_payload
+    VIDEO_MANIFEST_CACHE = {}
+    return status_payload
+
+
+def _surface_entries(surface: str) -> list[dict]:
+    ensure_default_video_inventory()
+    queryset = TestimonialVideoAsset.objects.filter(is_active=True)
+    if surface == 'hero':
+        queryset = queryset.filter(show_in_hero=True)
+
+    rows = queryset.order_by('priority', 'id').values(
+        'slug',
+        'title',
+        'quote',
+        'duration_sec',
+        'priority',
+        'is_active'
+    )
+
+    return [
+        {
+            'id': str(row.get('slug') or '').strip(),
+            'title': str(row.get('title') or '').strip(),
+            'quote': str(row.get('quote') or '').strip(),
+            'duration_sec': int(row.get('duration_sec') or 0),
+            'priority': int(row.get('priority') or 100),
+            'active': bool(row.get('is_active'))
+        }
+        for row in rows
+        if str(row.get('slug') or '').strip()
+    ]
+
+
+def build_public_video_manifest(surface: str, device: str) -> dict:
+    normalized_surface = surface if surface in {'hero', 'testimonials'} else 'hero'
+    normalized_device = device if device in {'mobile', 'desktop'} else 'desktop'
+    cache_key = (normalized_surface, normalized_device)
+    cached = VIDEO_MANIFEST_CACHE.get(cache_key)
+    now_ts = time.time()
+    if cached and (now_ts - float(cached.get('_cached_at') or 0.0)) < VIDEO_MANIFEST_BUILD_CACHE_SEC:
+        return dict(cached.get('payload') or {})
+
+    ensure_video_assets_ready()
+    video_dir = _video_root_dir()
+
+    items = []
+    for entry in _surface_entries(normalized_surface):
+        video_id = str(entry['id'])
+        preferred_name = _mobile_variant_name(video_id) if normalized_device == 'mobile' else _desktop_variant_name(video_id)
+        fallback_name = _desktop_variant_name(video_id)
+
+        preferred_path = video_dir / preferred_name
+        fallback_path = video_dir / fallback_name
+        selected_name = preferred_name if preferred_path.exists() else (fallback_name if fallback_path.exists() else '')
+        if not selected_name:
+            continue
+
+        poster_name = _poster_variant_name(video_id)
+        poster_path = video_dir / poster_name
+
+        items.append({
+            'id': video_id,
+            'title': str(entry.get('title') or '').strip(),
+            'quote': str(entry.get('quote') or '').strip(),
+            'url': f'/media/video/{selected_name}',
+            'posterUrl': f'/media/video/{poster_name}' if poster_path.exists() else '',
+            'durationSec': int(entry.get('duration_sec') or 0),
+            'priority': int(entry.get('priority') or 0),
+            'active': bool(entry.get('active'))
+        })
+
+    payload = {
+        'version': VIDEO_MANIFEST_VERSION,
+        'cacheTtlSec': VIDEO_MANIFEST_CACHE_TTL_SEC,
+        'items': items
+    }
+    VIDEO_MANIFEST_CACHE[cache_key] = {
+        '_cached_at': now_ts,
+        'payload': payload
+    }
+    return payload
+
+
+def _safe_video_path(file_name: str) -> Path | None:
+    root = _video_root_dir()
+    requested = str(file_name or '').strip().lstrip('/')
+    if not requested:
+        return None
+    candidate = (root / requested).resolve()
+    try:
+        candidate.relative_to(root)
+    except Exception:
+        return None
+    if not candidate.exists() or not candidate.is_file():
+        return None
+    return candidate
+
+
+def _set_media_cache_headers(response: HttpResponse) -> None:
+    response['Accept-Ranges'] = 'bytes'
+    response['Cache-Control'] = f'public, max-age={VIDEO_STREAM_CACHE_SECONDS}, immutable'
+    response['X-Content-Type-Options'] = 'nosniff'
+
+
+def build_range_stream_response(file_path: Path, request) -> HttpResponse:
+    content_type = mimetypes.guess_type(str(file_path))[0] or 'application/octet-stream'
+    file_size = int(file_path.stat().st_size)
+    range_header = str(request.META.get('HTTP_RANGE') or '').strip()
+
+    if not range_header:
+        response = FileResponse(open(file_path, 'rb'), content_type=content_type)
+        response['Content-Length'] = str(file_size)
+        _set_media_cache_headers(response)
+        return response
+
+    match = VIDEO_RANGE_PATTERN.match(range_header)
+    if not match:
+        invalid = HttpResponse(status=416)
+        invalid['Content-Range'] = f'bytes */{file_size}'
+        _set_media_cache_headers(invalid)
+        return invalid
+
+    start_raw, end_raw = match.groups()
+    try:
+        if start_raw == '':
+            suffix_length = int(end_raw or '0')
+            if suffix_length <= 0:
+                raise ValueError('invalid suffix')
+            start = max(file_size - suffix_length, 0)
+            end = file_size - 1
+        else:
+            start = int(start_raw)
+            end = int(end_raw) if end_raw else file_size - 1
+            if start >= file_size:
+                raise ValueError('start out of range')
+            if end < start:
+                raise ValueError('end before start')
+            end = min(end, file_size - 1)
+    except Exception:
+        invalid = HttpResponse(status=416)
+        invalid['Content-Range'] = f'bytes */{file_size}'
+        _set_media_cache_headers(invalid)
+        return invalid
+
+    length = end - start + 1
+    with open(file_path, 'rb') as handle:
+        handle.seek(start)
+        data = handle.read(length)
+
+    response = HttpResponse(data, status=206, content_type=content_type)
+    response['Content-Length'] = str(length)
+    response['Content-Range'] = f'bytes {start}-{end}/{file_size}'
+    _set_media_cache_headers(response)
+    return response
 
 
 def ensure_single_agent():
@@ -553,6 +1124,175 @@ def resolve_ghost_thread(request, thread_id: int | str):
         return None
     return thread
 
+
+class PublicVideoManifestView(APIView):
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def get(self, request):
+        surface = str(request.query_params.get('surface') or 'hero').strip().lower()
+        device = str(request.query_params.get('device') or 'desktop').strip().lower()
+
+        payload = build_public_video_manifest(surface=surface, device=device)
+        response = Response(payload, status=status.HTTP_200_OK)
+        response['Cache-Control'] = f'public, max-age={VIDEO_MANIFEST_CACHE_TTL_SEC}'
+        return response
+
+
+class PublicVideoStreamView(APIView):
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def get(self, request, file_name: str):
+        safe_path = _safe_video_path(file_name)
+        if safe_path is None:
+            # Lazy one-shot materialization for first access; skip expensive checks for normal range requests.
+            ensure_video_assets_ready()
+            safe_path = _safe_video_path(file_name)
+        if safe_path is None:
+            return HttpResponse(status=404)
+
+        return build_range_stream_response(safe_path, request)
+
+
+class AgentVideoCollectionView(APIView):
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+
+    def get(self, request):
+        if not has_agent_access(request):
+            return Response({'error': 'Forbidden'}, status=status.HTTP_403_FORBIDDEN)
+
+        ensure_default_video_inventory()
+        queryset = TestimonialVideoAsset.objects.all().order_by('priority', 'id')
+        videos = [build_video_asset_payload(video) for video in queryset]
+        return Response({
+            'videos': videos,
+            'count': len(videos),
+            'active_count': sum(1 for row in videos if bool(row.get('is_active'))),
+            'hero_count': sum(1 for row in videos if bool(row.get('show_in_hero')))
+        }, status=status.HTTP_200_OK)
+
+    def post(self, request):
+        if not has_agent_access(request):
+            return Response({'error': 'Forbidden'}, status=status.HTTP_403_FORBIDDEN)
+
+        title = str(request.data.get('title') or '').strip()
+        if not title:
+            return Response({'title': ['Title is required.']}, status=status.HTTP_400_BAD_REQUEST)
+
+        video_file = request.FILES.get('video_file')
+        if not video_file:
+            return Response({'video_file': ['Video file is required.']}, status=status.HTTP_400_BAD_REQUEST)
+
+        content_type = str(getattr(video_file, 'content_type', '') or '').lower()
+        if not content_type.startswith('video/'):
+            return Response({'video_file': ['Only video files are allowed.']}, status=status.HTTP_400_BAD_REQUEST)
+
+        quote = str(request.data.get('quote') or '').strip()
+        requested_slug = str(request.data.get('slug') or '').strip()
+        slug_seed = requested_slug or title
+        slug = _next_available_video_slug(slug_seed)
+
+        try:
+            priority = int(request.data.get('priority') or 100)
+        except (TypeError, ValueError):
+            return Response({'priority': ['Priority must be a number.']}, status=status.HTTP_400_BAD_REQUEST)
+        priority = max(1, min(10000, priority))
+
+        show_in_hero = _parse_bool_like(request.data.get('show_in_hero'), default=False)
+        duration_raw = request.data.get('duration_sec')
+        duration_sec = 0
+        if duration_raw not in [None, '']:
+            try:
+                duration_sec = max(0, min(1200, int(duration_raw)))
+            except (TypeError, ValueError):
+                return Response({'duration_sec': ['Duration must be a number.']}, status=status.HTTP_400_BAD_REQUEST)
+
+        created = TestimonialVideoAsset.objects.create(
+            slug=slug,
+            title=title,
+            quote=quote,
+            uploaded_video=video_file,
+            source_file_name='',
+            duration_sec=duration_sec,
+            priority=priority,
+            show_in_hero=show_in_hero,
+            is_active=True,
+            created_by=request.user
+        )
+
+        # Force one refresh cycle so new uploads materialize into cached variants quickly.
+        ensure_video_assets_ready(force=True)
+        return Response({'video': build_video_asset_payload(created)}, status=status.HTTP_201_CREATED)
+
+
+class AgentVideoDetailView(APIView):
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+
+    def patch(self, request, video_id: int):
+        if not has_agent_access(request):
+            return Response({'error': 'Forbidden'}, status=status.HTTP_403_FORBIDDEN)
+
+        video = TestimonialVideoAsset.objects.filter(id=video_id).first()
+        if not video:
+            return Response({'error': 'Video not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        updated_fields: list[str] = []
+
+        if 'is_active' in request.data:
+            video.is_active = _parse_bool_like(request.data.get('is_active'), default=video.is_active)
+            updated_fields.append('is_active')
+
+        if 'show_in_hero' in request.data:
+            video.show_in_hero = _parse_bool_like(request.data.get('show_in_hero'), default=video.show_in_hero)
+            updated_fields.append('show_in_hero')
+
+        if 'title' in request.data:
+            title = str(request.data.get('title') or '').strip()
+            if not title:
+                return Response({'title': ['Title cannot be empty.']}, status=status.HTTP_400_BAD_REQUEST)
+            video.title = title
+            updated_fields.append('title')
+
+        if 'quote' in request.data:
+            video.quote = str(request.data.get('quote') or '').strip()
+            updated_fields.append('quote')
+
+        if 'priority' in request.data:
+            try:
+                priority = int(request.data.get('priority'))
+            except (TypeError, ValueError):
+                return Response({'priority': ['Priority must be a number.']}, status=status.HTTP_400_BAD_REQUEST)
+            video.priority = max(1, min(10000, priority))
+            updated_fields.append('priority')
+
+        if 'duration_sec' in request.data:
+            try:
+                duration = int(request.data.get('duration_sec'))
+            except (TypeError, ValueError):
+                return Response({'duration_sec': ['Duration must be a number.']}, status=status.HTTP_400_BAD_REQUEST)
+            video.duration_sec = max(0, min(1200, duration))
+            updated_fields.append('duration_sec')
+
+        replacement = request.FILES.get('video_file')
+        if replacement:
+            content_type = str(getattr(replacement, 'content_type', '') or '').lower()
+            if not content_type.startswith('video/'):
+                return Response({'video_file': ['Only video files are allowed.']}, status=status.HTTP_400_BAD_REQUEST)
+            video.uploaded_video = replacement
+            updated_fields.append('uploaded_video')
+            if video.source_file_name:
+                video.source_file_name = ''
+                updated_fields.append('source_file_name')
+
+        if not updated_fields:
+            return Response({'video': build_video_asset_payload(video)}, status=status.HTTP_200_OK)
+
+        updated_fields.append('updated_at')
+        video.save(update_fields=updated_fields)
+        ensure_video_assets_ready(force=True)
+        return Response({'video': build_video_asset_payload(video)}, status=status.HTTP_200_OK)
+ 
 class UserRegister(APIView):  
     
     def post(self,request):

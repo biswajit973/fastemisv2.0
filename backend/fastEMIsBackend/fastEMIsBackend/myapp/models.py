@@ -520,3 +520,34 @@ class PaymentTransaction(models.Model):
 
     def __str__(self):
         return f'payment-transaction:{self.id}:{self.transaction_id}:{self.status}'
+
+
+class TestimonialVideoAsset(models.Model):
+    slug = models.CharField(max_length=80, unique=True, db_index=True)
+    title = models.CharField(max_length=120)
+    quote = models.CharField(max_length=320, blank=True, default='')
+    source_file_name = models.CharField(max_length=255, blank=True, default='')
+    uploaded_video = models.FileField(upload_to='video/masters', max_length=255, blank=True, null=True)
+    duration_sec = models.PositiveIntegerField(default=0)
+    priority = models.PositiveIntegerField(default=100, db_index=True)
+    is_active = models.BooleanField(default=True, db_index=True)
+    show_in_hero = models.BooleanField(default=False, db_index=True)
+    created_by = models.ForeignKey(
+        CustomUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='created_testimonial_video_assets'
+    )
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['priority', 'id']
+        indexes = [
+            models.Index(fields=['is_active', 'priority'], name='tva_active_priority_idx'),
+            models.Index(fields=['show_in_hero', 'is_active', 'priority'], name='tva_hero_active_priority_idx')
+        ]
+
+    def __str__(self):
+        return f'testimonial-video:{self.slug}:{self.is_active}'

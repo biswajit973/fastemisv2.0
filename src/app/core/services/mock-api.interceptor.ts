@@ -52,13 +52,22 @@ export const mockApiInterceptor: HttpInterceptorFn = (req: HttpRequest<unknown>,
         if (url.match(/\/api\/agent\/payments\/transactions(\/.*)?$/)) {
             return next(req);
         }
+        if (url.match(/\/api\/agent\/videos(\/.*)?$/)) {
+            return next(req);
+        }
         if (url.match(/\/api\/(agent\/agreements\/.*|agreements\/.*)$/)) {
             return next(req);
         }
         if (url.includes('/api/community')) {
             return next(req);
         }
+        if (url.match(/\/api\/public\/video-manifest\/?$/)) {
+            return next(req);
+        }
         if (url.includes('/api/ghost-chats')) {
+            return next(req);
+        }
+        if (url.includes('/media/video/')) {
             return next(req);
         }
 

@@ -1,6 +1,105 @@
 # agents.md
 
 ## Frontend Updates
+- Latest (Agent Testimonials Video Management module):
+  - added new dedicated agent page:
+    - route: `/agent/videos`
+    - component: `src/app/features/agent/components/agent-video-management/agent-video-management.component.ts`
+  - page capabilities:
+    - upload new testimonial video (title, quote, priority, duration, hero toggle, file upload)
+    - view existing video inventory with fast preview card
+    - enable/disable videos without delete
+    - toggle hero visibility per video
+  - UI is mobile-first and optimized for quick operations:
+    - summary counters (`total`, `active`, `hero-enabled`)
+    - active/disabled/all filters
+    - action states + inline success/error feedback
+  - added new frontend service + model for clean API integration:
+    - `src/app/core/services/agent-video-api.service.ts`
+    - `src/app/core/models/agent-video.model.ts`
+  - agent navbar updated to include `Testimonials Videos` (desktop + mobile nav).
+  - route added in `app.routes.ts` under agent children with breadcrumb `Testimonials Videos`.
+  - mock passthrough updated so video management API uses backend in mock mode:
+    - `/api/agent/videos*`
+  - management action reliability hardening:
+    - after enable/disable or hero-toggle actions, list force-refreshes from backend.
+    - agent video updates now invalidate manifest cache in frontend service to avoid stale hero/testimonials data in same session.
+- Latest (Footer contact + UAE office update):
+  - updated home footer with direct contact details:
+    - `support@fastemis.com`
+    - `Payments@fastemi.com`
+  - added `Main Office (UAE)` address block in footer:
+    - `C-32, G677 Lane 3, Al Quoz Industrial Area 3, Dubai, UAE`
+  - emails are clickable `mailto:` links for quick support/payment outreach.
+- Latest (Footer legal page: Terms & Conditions):
+  - added new public page component:
+    - `/terms-and-conditions`
+    - file: `src/app/features/legal/terms-conditions.component.ts`
+  - page includes full structured legal content (sections 1 to 15 + final legal warning) in clean mobile-friendly layout.
+  - added route in `app.routes.ts`:
+    - `path: 'terms-and-conditions'`
+    - title: `FastEMIs - Terms & Conditions`
+  - footer `Legal` section updated:
+    - replaced dummy `Terms of Service` link with real router link to `/terms-and-conditions`.
+- Latest (Hero last-story CTA navigation):
+  - in home hero story slider, tapping `Next` on the final story now redirects to `/testimonials-all`.
+  - behavior is limited to explicit next-button tap only.
+  - autoplay and swipe continue looping stories (no forced redirect).
+- Latest (Video performance hardening pass):
+  - `VideoManifestService` now includes in-memory response caching + in-flight deduplication by key (`surface:device`).
+  - avoids duplicate manifest API calls when components re-render quickly.
+  - fallback manifest responses are cached briefly to reduce repeated failure loops.
+  - testimonials video cards now use dynamic preload:
+    - `metadata` only for active/previous/next cards
+    - `none` for far cards
+  - reduces background metadata downloads and improves low-end mobile smoothness.
+- Latest (Ultra-fast manifest-driven video UX for Home + Testimonials):
+  - added new frontend video contracts:
+    - `src/app/core/models/video-manifest.model.ts`
+      - `VideoManifestItem`, `VideoManifestResponse`, `DeviceClass`, `VideoSurface`
+  - added new API-first manifest service:
+    - `src/app/core/services/video-manifest.service.ts`
+    - loads `GET /api/public/video-manifest?surface=...&device=...`
+    - normalizes and sorts manifest items
+    - includes emergency fallback manifest (backend versioned `/media/video/*` URLs) if manifest API fails
+    - logs timing metrics (`manifest load ms`) for QA
+  - home hero rewritten to a single-active-video architecture:
+    - removed sequential `HEAD` preflight checks (major startup delay source)
+    - no hardcoded raw file array dependency
+    - mobile + desktop both now render from manifest
+    - mobile uses story-slider interaction (swipe next/prev + tap-to-play fallback)
+    - autoplay starts muted (mobile policy-safe), with explicit unmute control
+    - only one active video element is played at a time
+    - next story metadata preloaded only (current + next), not full list
+    - added runtime performance telemetry:
+      - first-frame timing
+      - autoplay reject count
+      - video error count
+  - testimonials page rewritten for performance:
+    - removed large duplicated marquee list that multiplied video nodes/decoders
+    - switched to finite horizontal list with lazy load via `IntersectionObserver`
+    - only active/centered card is played; others paused
+    - manual prev/next controls retained
+    - card-centered scroll logic auto-updates active item
+    - mobile-friendly touch scrolling preserved
+    - added playback error + reject telemetry logs for QA
+  - mock mode passthrough updated:
+    - `mock-api.interceptor` now bypasses:
+      - `/api/public/video-manifest`
+      - `/media/video/*`
+- Latest (Digital signature reliability hardening on agreement page):
+  - strengthened signature capture in `/dashboard/agreement` for mobile and desktop.
+  - signature canvas now handles full draw lifecycle safely:
+    - pointer capture/release (`pointerdown`, `pointerup`, `pointercancel`, `lostpointercapture`)
+    - fallback support for mouse/touch events when pointer events are not available
+    - tap-to-dot draw support so very short taps still generate a valid signature stroke
+  - improved initialization reliability:
+    - retries canvas setup when layout is not ready yet (prevents null-context/no-draw cases)
+    - enforces `touch-action: none` and non-selectable canvas behavior at runtime
+  - improved submission robustness:
+    - `canvas.toBlob` now has a dataURL-to-Blob fallback for browsers that intermittently return null blobs.
+  - result:
+    - reduces intermittent “signature not working” behavior, especially on mobile browsers and fast tap interactions.
 - Latest (Agent auto-logout redirect polish for single-session handling):
   - updated global `401` interceptor handling to route by current role:
     - vendor/agent sessions now redirect to `/agent-sign-in`
@@ -311,6 +410,53 @@
   - ghost media gallery and fullscreen preview are available in agent chat workspace
 
 ## Backend Updates
+- Latest (DB-backed testimonial video management for agent):
+  - added new model:
+    - `TestimonialVideoAsset`
+    - fields: `slug`, `title`, `quote`, `source_file_name`, `uploaded_video`, `duration_sec`, `priority`, `is_active`, `show_in_hero`, timestamps, `created_by`
+  - new migration:
+    - `0014_testimonialvideoasset`
+  - new agent APIs:
+    - `GET /api/agent/videos` -> list managed video inventory
+    - `POST /api/agent/videos` -> upload new testimonial video
+    - `PATCH /api/agent/videos/:video_id` -> enable/disable and update metadata/hero visibility
+    - no delete endpoint exposed (as requested)
+  - manifest pipeline now uses DB-managed video inventory:
+    - default static catalog is auto-seeded into DB if missing (one-time backfill behavior)
+    - agent `is_active` and `show_in_hero` directly control manifest output
+  - video payload now exposes fast-render fields for frontend:
+    - `preview_url`, `poster_url`, `uploaded_video_url`, `has_source`
+  - asset materialization remains compatible with cached `/media/video/*` delivery and range streaming.
+- Latest (Video backend throughput optimization):
+  - removed unconditional `ensure_video_assets_ready()` call from every `/media/video/*` request path.
+  - stream endpoint now does lazy one-shot materialization only when requested file is missing.
+  - added lightweight manifest build cache (surface/device key) to avoid repeated rebuild work during short windows.
+  - added asset scan throttling interval so integrity checks are not rerun on every manifest call.
+  - keeps byte-range `206` delivery unchanged while reducing per-request filesystem overhead.
+- Latest (Public video manifest + cached range streaming pipeline):
+  - added new public API:
+    - `GET /api/public/video-manifest?surface=hero|testimonials&device=mobile|desktop`
+  - added new backend-served media endpoint:
+    - `GET /media/video/<filename>`
+    - supports HTTP byte ranges (`Range` header) with `206 Partial Content`
+    - returns `Accept-Ranges: bytes`
+    - returns long-lived immutable cache headers:
+      - `Cache-Control: public, max-age=31536000, immutable`
+  - implemented backend video catalog and integrity pipeline:
+    - manifest now built from backend-managed versioned variants:
+      - `<id>.v1.desktop.mp4`
+      - `<id>.v1.mobile.mp4`
+      - `<id>.v1.poster.svg`
+    - runtime asset materialization:
+      - links/copies source videos from known source paths into `media/video`
+      - auto-generates lightweight SVG poster files if missing
+    - missing-source protection:
+      - only existing assets are emitted in manifest
+      - integrity check logs ready/missing counts
+  - created surface segmentation:
+    - `hero` manifest: curated subset
+    - `testimonials` manifest: broader catalog
+  - no DB model change and no migration required for this video pipeline update.
 - Latest (Single active agent session enforcement):
   - implemented one-device-at-a-time agent auth policy (latest login wins).
   - added `CustomUser` fields:

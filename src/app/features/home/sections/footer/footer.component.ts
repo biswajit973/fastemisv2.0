@@ -21,6 +21,22 @@ import { RouterLink } from '@angular/router';
             <p class="text-sm text-secondary mb-4">
               FastEMIs is an EMI marketplace that connects buyers with RBI-registered finance partners for buy now, pay later plans.
             </p>
+            <div class="rounded-xl border border-border bg-surface px-4 py-3 text-sm text-secondary space-y-2">
+              <div>
+                <span class="font-semibold text-primary">Support:</span>
+                <a href="mailto:support@fastemis.com" class="ml-1 text-secondary no-underline hover:text-primary">support&#64;fastemis.com</a>
+              </div>
+              <div>
+                <span class="font-semibold text-primary">Payments:</span>
+                <a href="mailto:Payments@fastemi.com" class="ml-1 text-secondary no-underline hover:text-primary">Payments&#64;fastemi.com</a>
+              </div>
+              <div>
+                <span class="font-semibold text-primary">Main Office (UAE):</span>
+                <div class="mt-1 leading-relaxed">
+                  C-32, G677 Lane 3, Al Quoz Industrial Area 3, Dubai, UAE
+                </div>
+              </div>
+            </div>
           </div>
 
           <div class="flex gap-12 flex-wrap">
@@ -36,7 +52,7 @@ import { RouterLink } from '@angular/router';
               <h4 class="font-bold text-primary mb-4">Legal</h4>
               <ul class="space-y-2 text-sm text-secondary">
                 <li><a href="#" class="hover:text-primary transition-standard no-underline">Privacy Policy</a></li>
-                <li><a href="#" class="hover:text-primary transition-standard no-underline">Terms of Service</a></li>
+                <li><a routerLink="/terms-and-conditions" class="hover:text-primary transition-standard no-underline">Terms & Conditions</a></li>
                 <li><a href="#" class="hover:text-primary transition-standard no-underline">Grievance Redressal</a></li>
               </ul>
             </div>

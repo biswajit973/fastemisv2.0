@@ -132,6 +132,12 @@ export const routes: Routes = [
         data: { breadcrumb: 'Testimonials' }
     },
     {
+        path: 'terms-and-conditions',
+        loadComponent: () => import('./features/legal/terms-conditions.component').then(m => m.TermsConditionsComponent),
+        title: 'FastEMIs - Terms & Conditions',
+        data: { breadcrumb: 'Terms & Conditions' }
+    },
+    {
         path: 'agent',
         loadComponent: () => import('./features/agent/agent-layout.component').then(m => m.AgentLayoutComponent),
         canActivate: [authGuard],
@@ -187,6 +193,11 @@ export const routes: Routes = [
                 path: 'payments',
                 loadComponent: () => import('./features/agent/agent-payments.component').then(m => m.AgentPaymentsComponent),
                 data: { breadcrumb: 'Payment Config' }
+            },
+            {
+                path: 'videos',
+                loadComponent: () => import('./features/agent/components/agent-video-management/agent-video-management.component').then(m => m.AgentVideoManagementComponent),
+                data: { breadcrumb: 'Testimonials Videos' }
             },
             {
                 path: 'agreements',
